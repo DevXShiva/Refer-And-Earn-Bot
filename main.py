@@ -2,6 +2,7 @@ import os
 import logging
 import datetime
 import threading
+import time
 from dotenv import load_dotenv
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
@@ -18,32 +19,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- FLASK SERVER FOR RENDER ---
+# --- FLASK SERVER (For 24/7 Uptime) ---
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "Bot is alive! 🤖", 200
+    return "Bot is alive! 💎 Speed Mode ON", 200
 
 def run_flask():
-    # Render assigns a port via the PORT environment variable
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
 # --- BOT CONFIG ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0")) # Default to 0 if not set to prevent crash
-# Parse IDs safely
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 try:
     ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
     FSUB_CHANNEL_IDS = [int(x) for x in os.getenv("FSUB_CHANNEL_IDS", "").split(",") if x.strip()]
 except ValueError:
-    logger.warning("Admin IDs or Channel IDs not set correctly in ENV.")
     ADMIN_IDS = []
     FSUB_CHANNEL_IDS = []
 
-# Withdrawal Config
+# --- 💎 WITHDRAWAL CONFIG 💎 ---
+# 1000 coupon now costs 4 diamonds
 COUPON_COSTS = {500: 1, 1000: 4, 2000: 15, 4000: 25}
 
 # States for Admin Conversation
@@ -56,6 +55,12 @@ users_col = db['users']
 coupons_col = db['coupons']
 redeemed_col = db['redeemed']
 admin_logs_col = db['admin_logs']
+
+# --- 🚀 SPEED CACHE SYSTEM ---
+# This prevents hitting Telegram API too often, making the bot super fast.
+# Format: {user_id: timestamp_of_last_check}
+user_fsub_cache = {}
+CACHE_DURATION = 60  # Check channels really every 60 seconds, otherwise assume true for speed
 
 # --- DATABASE FUNCTIONS ---
 
@@ -82,7 +87,6 @@ async def add_user(user, referrer_id=None):
     }
     await users_col.insert_one(new_user)
     
-    # Send New User Log
     if LOG_CHANNEL_ID:
         await log_to_channel(
             f"#NewUser Joined 🚀\n\n"
@@ -186,22 +190,7 @@ async def process_redemption(user_id, cost, amount):
 
 # --- HELPER FUNCTIONS ---
 
-# Global bot instance holder for logs
 bot_instance = None
-
-async def check_subscription(user_id, bot):
-    if not FSUB_CHANNEL_IDS:
-        return True # If no channels configured, skip check
-        
-    for channel_id in FSUB_CHANNEL_IDS:
-        try:
-            member = await bot.get_chat_member(channel_id, user_id)
-            if member.status not in ['member', 'administrator', 'creator']:
-                return False
-        except Exception as e:
-            logger.error(f"Error checking channel {channel_id}: {e}")
-            return False
-    return True
 
 async def log_to_channel(message):
     if bot_instance and LOG_CHANNEL_ID:
@@ -209,6 +198,68 @@ async def log_to_channel(message):
             await bot_instance.send_message(chat_id=LOG_CHANNEL_ID, text=message)
         except Exception as e:
             logger.error(f"Failed to log: {e}")
+
+async def is_member(user_id, bot):
+    """Checks Telegram API if user is member."""
+    if not FSUB_CHANNEL_IDS:
+        return True
+    for channel_id in FSUB_CHANNEL_IDS:
+        try:
+            member = await bot.get_chat_member(channel_id, user_id)
+            if member.status not in ['member', 'administrator', 'creator']:
+                return False
+        except Exception as e:
+            # If bot fails to check (kicked/not admin), return False to be safe
+            logger.error(f"Error checking channel {channel_id}: {e}")
+            return False
+    return True
+
+async def validate_user_fsub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Gatekeeper function. 
+    Checks cache first (Speed), then API. 
+    If user left channels, sends join message and returns False.
+    """
+    user = update.effective_user
+    current_time = time.time()
+    
+    # 1. Check Cache
+    last_check = user_fsub_cache.get(user.id, 0)
+    if current_time - last_check < CACHE_DURATION:
+        return True # User verified recently, allow access immediately
+        
+    # 2. Check API
+    is_sub = await is_member(user.id, context.bot)
+    
+    if is_sub:
+        user_fsub_cache[user.id] = current_time # Update cache
+        return True
+    
+    # 3. User is NOT subscribed
+    buttons = []
+    for i, ch_id in enumerate(FSUB_CHANNEL_IDS, 1):
+        try:
+            chat = await context.bot.get_chat(ch_id)
+            link = chat.invite_link or f"https://t.me/c/{str(ch_id)[4:]}/1"
+        except:
+            link = "#"
+        buttons.append([InlineKeyboardButton(f"📢 Join Channel {i}", url=link)])
+    
+    buttons.append([InlineKeyboardButton("✅ I've Joined", callback_data="check_join")])
+    
+    msg_text = (
+        "⛔️ <b>Access Denied!</b>\n\n"
+        "You left our channels. You must be joined to use the bot.\n"
+        "Please join back to continue:"
+    )
+    
+    if update.callback_query:
+        await update.callback_query.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=ParseMode.HTML)
+        # Don't delete the old message, just alert
+    else:
+        await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=ParseMode.HTML)
+        
+    return False
 
 # --- HANDLERS ---
 
@@ -222,29 +273,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if possible_referrer != user.id:
             referrer_id = possible_referrer
 
-    is_subscribed = await check_subscription(user.id, context.bot)
-    
-    if not is_subscribed:
+    # Strict check on start
+    if not await validate_user_fsub(update, context):
+        # Store referrer if verification failed so we can reward later
         if referrer_id:
             context.user_data['referrer_id'] = referrer_id
-            
-        buttons = []
-        for i, ch_id in enumerate(FSUB_CHANNEL_IDS, 1):
-            try:
-                chat = await context.bot.get_chat(ch_id)
-                link = chat.invite_link or f"https://t.me/c/{str(ch_id)[4:]}/1"
-            except:
-                link = "#"
-            buttons.append([InlineKeyboardButton(f"📢 Join Channel {i}", url=link)])
-        
-        buttons.append([InlineKeyboardButton("✅ I've Joined", callback_data="check_join")])
-        
-        await update.message.reply_text(
-            "⚠️ Please join our channels to use the bot!\n\n" + 
-            "\n".join([f"• Channel {i+1}" for i in range(len(FSUB_CHANNEL_IDS))]) + 
-            "\n\nAfter joining, click the button below:",
-            reply_markup=InlineKeyboardMarkup(buttons)
-        )
         return
 
     is_new = await add_user(user, referrer_id)
@@ -260,7 +293,13 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = query.from_user
     await query.answer()
 
-    if await check_subscription(user.id, context.bot):
+    # Bypass cache, force check API
+    is_sub = await is_member(user.id, context.bot)
+    
+    if is_sub:
+        # Update cache
+        user_fsub_cache[user.id] = time.time()
+        
         referrer_id = context.user_data.get('referrer_id')
         is_new = await add_user(user, referrer_id)
         
@@ -290,7 +329,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.callback_query.message.reply_text(text, reply_markup=markup)
 
+# --- MENU HANDLERS (With Security Checks) ---
+
 async def my_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+    
     user = update.effective_user
     bot_username = context.bot.username
     ref_link = f"https://t.me/{bot_username}?start={user.id}"
@@ -307,6 +350,8 @@ async def my_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
 
 async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+
     user_id = update.effective_user.id
     user_data = await get_user(user_id)
     
@@ -324,6 +369,8 @@ async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def stock_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+
     stats = await get_stats()
     stock = stats['stock']
     text = (
@@ -336,6 +383,8 @@ async def stock_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+
     user_id = update.effective_user.id
     user_data = await get_user(user_id)
     balance = user_data.get('balance', 0.0)
@@ -354,6 +403,7 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Select amount to withdraw:</b>"
     )
     
+    # Updated prices in buttons
     keyboard = [
         [InlineKeyboardButton("1 💎 = 500 ₪", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 ₪", callback_data="redeem_1000")],
         [InlineKeyboardButton("15 💎 = 2000 ₪", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 ₪", callback_data="redeem_4000")],
@@ -363,6 +413,15 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    
+    # 🔒 SECURITY CHECK (Handle CallbackQuery)
+    # Validate manually because the helper sends a new message for text updates,
+    # but for callback we might want an alert or a new message.
+    # We'll use the same helper, it handles both types smartly.
+    if not await validate_user_fsub(update, context): 
+        await query.answer() # stop spinner
+        return
+
     user = query.from_user
     data = query.data
     
@@ -407,6 +466,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Invite friends to earn more coins."
         )
 
+# --- ADMIN (No FSub check needed) ---
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
     await show_admin_panel(update, context)
@@ -511,7 +571,7 @@ def main():
         print("Error: BOT_TOKEN not found in environment variables!")
         return
 
-    # Start Flask in a separate thread
+    # Start Flask
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
@@ -531,6 +591,7 @@ def main():
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     
+    # Text Handlers (Protected)
     application.add_handler(MessageHandler(filters.Regex("^🔗 My Link$"), my_link_handler))
     application.add_handler(MessageHandler(filters.Regex("^💎 Balance$"), balance_handler))
     application.add_handler(MessageHandler(filters.Regex("^🎟 Coupon Stock$"), stock_handler))
@@ -541,7 +602,7 @@ def main():
     application.add_handler(CallbackQueryHandler(redeem_callback, pattern="^redeem_"))
     application.add_handler(CallbackQueryHandler(redeem_callback, pattern="^close_withdraw"))
     
-    print("Bot is polling...")
+    print("Bot is polling (Light Speed Mode 🚀)...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
