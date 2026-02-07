@@ -1,6 +1,6 @@
 ---
 
-# 🛍️ SHEIN Referral & Coupon Telegram Bot
+# 🛍️ Referral & Coupon Telegram Bot
 
 A high-performance, asynchronous **Telegram Bot** designed to automate coupon distribution through a viral referral system. Built with Python and MongoDB, it features a robust admin panel and mandatory channel subscription (FSub) to boost your community growth.
 
@@ -79,23 +79,10 @@ python main.py
 * Monitor all redemptions in the dedicated Log Channel.
 
 ---
-
-## 📂 Project Structure
-
-```text
-├── main.py           # Core bot logic & Flask server
-├── .env              # Environment variables (private)
-├── requirements.txt  # Python dependencies
-└── README.md         # Project documentation
-
-```
-
----
-
 ## 🛡️ License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-**Developed with ❤️ for the SHIVA CHAUDHARY.**
+**Developed with ❤️ By SHIVA CHAUDHARY.**
