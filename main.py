@@ -299,7 +299,7 @@ async def my_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔗 <b>Your Referral Link</b>\n\n"
         f"{ref_link}\n\n"
         f"🎉 <b>Invite friends & earn rewards</b>\n"
-        f"Get 1 🥳 for every verified join\n\n"
+        f"Get 1 💎 for every verified join\n\n"
         f"<i>Share this link to start earning!</i>"
     )
     
@@ -317,7 +317,7 @@ async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = (
         f"💎 <b>Balance</b>\n\n"
-        f"<b>Total:</b> {balance} 🧩\n"
+        f"<b>Total:</b> {balance} 💎\n"
         f"<b>Redeem:</b> {redeemed_count}\n\n"
         f"<i>Redeem History:</i>{history_text}"
     )
@@ -343,20 +343,20 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if balance <= 0:
         await update.message.reply_text(
             f"❌ Insufficient Balance!\n\n"
-            f"Your balance is {balance} 🧩\n"
+            f"Your balance is {balance} 💎\n"
             f"Invite friends to earn more coins."
         )
         return
 
     text = (
         f"💸 <b>Withdraw</b>\n\n"
-        f"<b>Total Balance:</b> {balance} 🧩\n"
+        f"<b>Total Balance:</b> {balance} 💎\n"
         f"<b>Select amount to withdraw:</b>"
     )
     
     keyboard = [
-        [InlineKeyboardButton("1 🧩 = 500 ₪", callback_data="redeem_500"), InlineKeyboardButton("4 🧩 = 1000 ₪", callback_data="redeem_1000")],
-        [InlineKeyboardButton("15 🧩 = 2000 ₪", callback_data="redeem_2000"), InlineKeyboardButton("25 🧩 = 4000 ₪", callback_data="redeem_4000")],
+        [InlineKeyboardButton("1 💎 = 500 ₪", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 ₪", callback_data="redeem_1000")],
+        [InlineKeyboardButton("15 💎 = 2000 ₪", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 ₪", callback_data="redeem_4000")],
         [InlineKeyboardButton("🔙 Back", callback_data="close_withdraw")]
     ]
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -382,8 +382,8 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Coupon Redeemed Successfully!\n\n"
             f"🎟 Code: <code>{code}</code>\n"
             f"💰 Amount: {amount} ₪\n"
-            f"💸 Deducted: {cost} 🧩\n"
-            f"💎 Remaining Balance: {balance} 🧩\n\n"
+            f"💸 Deducted: {cost} 💎\n"
+            f"💎 Remaining Balance: {balance} 💎\n\n"
             f"Use this code on SHEIN app/website",
             parse_mode=ParseMode.HTML
         )
@@ -402,8 +402,8 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data = await get_user(user.id)
         await query.message.edit_text(
             f"❌ Insufficient Balance!\n\n"
-            f"Required: {cost} 🧩\n"
-            f"Your balance: {user_data.get('balance', 0)} 🧩\n\n"
+            f"Required: {cost} 💎\n"
+            f"Your balance: {user_data.get('balance', 0)} 💎\n\n"
             f"Invite friends to earn more coins."
         )
 
