@@ -1,6 +1,4 @@
-Here is a professional and eye-catching README.md for your SHEIN Referral & Coupon Bot, written in English.
-
-🛍️ SHEIN Referral & Coupon Telegram Bot
+#🛍️ SHEIN Referral & Coupon Telegram Bot
 A high-performance, asynchronous Telegram Bot designed to automate coupon distribution through a viral referral system. Built with Python and MongoDB, it features a robust admin panel and mandatory channel subscription (FSub) to boost your community growth.
 
 ✨ Key Features
