@@ -405,8 +405,8 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Updated prices in buttons
     keyboard = [
-        [InlineKeyboardButton("1 💎 = 500 ₪", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 ₪", callback_data="redeem_1000")],
-        [InlineKeyboardButton("15 💎 = 2000 ₪", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 ₪", callback_data="redeem_4000")],
+        [InlineKeyboardButton("1 💎 = 500 🎟", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 🎟", callback_data="redeem_1000")],
+        [InlineKeyboardButton("15 💎 = 2000 🎟", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 🎟", callback_data="redeem_4000")],
         [InlineKeyboardButton("🔙 Back", callback_data="close_withdraw")]
     ]
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
@@ -440,7 +440,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(
             f"✅ Coupon Redeemed Successfully!\n\n"
             f"🎟 Code: <code>{code}</code>\n"
-            f"💰 Amount: {amount} ₪\n"
+            f"💰 Amount: {amount} 🎟\n"
             f"💸 Deducted: {cost} 💎\n"
             f"💎 Remaining Balance: {balance} 💎\n\n"
             f"Use this code on SHEIN app/website",
@@ -451,12 +451,12 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=LOG_CHANNEL_ID,
                 text=f"🎟 New Redemption\n\n"
                      f"👤 User: {user.first_name} (ID: {user.id})\n"
-                     f"💰 Amount: {amount} ₪\n"
+                     f"💰 Amount: {amount} 🎟\n"
                      f"🔢 Code: {code}\n"
                      f"🕒 Time: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
             )
     elif status == "out_of_stock":
-        await query.answer(f"❌ {amount} ₪ coupons are out of stock!", show_alert=True)
+        await query.answer(f"❌ {amount} 🎟 coupons are out of stock!", show_alert=True)
     elif status == "insufficient_balance":
         user_data = await get_user(user.id)
         await query.message.edit_text(
@@ -513,10 +513,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Used Coupons: {stats['used_coupons']}\n"
             f"🔄 Available: {stats['available_coupons']}\n\n"
             f"Coupon Stock:\n"
-            f"• 500 ₪: {stats['stock'].get(500, 0)}\n"
-            f"• 1000 ₪: {stats['stock'].get(1000, 0)}\n"
-            f"• 2000 ₪: {stats['stock'].get(2000, 0)}\n"
-            f"• 4000 ₪: {stats['stock'].get(4000, 0)}\n\n"
+            f"• 500 🎟: {stats['stock'].get(500, 0)}\n"
+            f"• 1000 🎟: {stats['stock'].get(1000, 0)}\n"
+            f"• 2000 🎟: {stats['stock'].get(2000, 0)}\n"
+            f"• 4000 🎟: {stats['stock'].get(4000, 0)}\n\n"
             f"Last updated: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
         )
         keyboard = [[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_reload")]]
@@ -526,7 +526,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("add_c_"):
         amount = int(data.split("_")[2])
         context.user_data['add_coupon_amount'] = amount
-        await query.message.reply_text(f"Please send coupon codes for {amount} ₪ (one per line):")
+        await query.message.reply_text(f"Please send coupon codes for {amount} 🎟 (one per line):")
         return WAITING_FOR_COUPONS
 
 async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -540,7 +540,7 @@ async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE
     stock = stats['stock']
     reply_text = (
         f"✅ Successfully added {added} coupon(s)!\n\n"
-        f"💰 Amount: {amount} ₪\n"
+        f"💰 Amount: {amount} 🎟\n"
         f"🎟 Added: {added} codes\n"
         f"📊 Failed: {duplicates} (duplicates)\n\n"
         f"Updated stock:\n"
@@ -555,7 +555,7 @@ async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=LOG_CHANNEL_ID,
             text=f"👑 Admin Action\n\n"
                  f"👤 Admin: {update.effective_user.first_name} (ID: {admin_id})\n"
-                 f"🎟 Added: {added} x {amount} ₪ coupons\n"
+                 f"🎟 Added: {added} x {amount} 🎟 coupons\n"
                  f"🕒 Time: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
         )
     return ConversationHandler.END
