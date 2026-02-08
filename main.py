@@ -42,7 +42,7 @@ except ValueError:
     FSUB_CHANNEL_IDS = []
 
 # --- 💎 WITHDRAWAL CONFIG 💎 ---
-COUPON_COSTS = {500: 1, 1000: 4, 2000: 15, 4000: 25}
+COUPON_COSTS = {500: 1, 1000: 5, 2000: 15, 4000: 25}
 
 # States for Admin Conversation
 WAITING_FOR_COUPONS = 1
@@ -397,7 +397,7 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     keyboard = [
-        [InlineKeyboardButton("1 💎 = 500 🎟 ", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 🎟 ", callback_data="redeem_1000")],
+        [InlineKeyboardButton("1 💎 = 500 🎟 ", callback_data="redeem_500"), InlineKeyboardButton("5 💎 = 1000 🎟 ", callback_data="redeem_1000")],
         [InlineKeyboardButton("15 💎 = 2000 🎟 ", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 🎟 ", callback_data="redeem_4000")],
         [InlineKeyboardButton("🔙 Back", callback_data="close_withdraw")]
     ]
