@@ -24,7 +24,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    return "Bot is alive! 💎 Speed Mode ON", 200
+    return "Bot is alive! 💎 High Speed Mode ON", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -42,7 +42,6 @@ except ValueError:
     FSUB_CHANNEL_IDS = []
 
 # --- 💎 WITHDRAWAL CONFIG 💎 ---
-# 1000 coupon now costs 4 diamonds
 COUPON_COSTS = {500: 1, 1000: 4, 2000: 15, 4000: 25}
 
 # States for Admin Conversation
@@ -57,10 +56,8 @@ redeemed_col = db['redeemed']
 admin_logs_col = db['admin_logs']
 
 # --- 🚀 SPEED CACHE SYSTEM ---
-# This prevents hitting Telegram API too often, making the bot super fast.
-# Format: {user_id: timestamp_of_last_check}
 user_fsub_cache = {}
-CACHE_DURATION = 60  # Check channels really every 60 seconds, otherwise assume true for speed
+CACHE_DURATION = 60 
 
 # --- DATABASE FUNCTIONS ---
 
@@ -162,6 +159,20 @@ async def add_coupons_to_db(codes, amount, admin_id):
     
     return added_count, duplicates
 
+# --- NEW: BATCH DELETE FUNCTION ---
+async def delete_coupons_from_db(codes, admin_id):
+    # Optimisation: Use delete_many for single query speed
+    result = await coupons_col.delete_many({'code': {'$in': codes}})
+    
+    if result.deleted_count > 0:
+        await admin_logs_col.insert_one({
+            'admin_id': admin_id,
+            'action': "delete_coupons",
+            'details': f"Deleted {result.deleted_count} coupons: {', '.join(codes[:5])}...",
+            'timestamp': datetime.datetime.now()
+        })
+    return result.deleted_count
+
 async def process_redemption(user_id, cost, amount):
     user = await get_user(user_id)
     if not user or user['balance'] < cost:
@@ -200,42 +211,34 @@ async def log_to_channel(message):
             logger.error(f"Failed to log: {e}")
 
 async def is_member(user_id, bot):
-    """Checks Telegram API if user is member."""
-    if not FSUB_CHANNEL_IDS:
-        return True
+    if not FSUB_CHANNEL_IDS: return True
     for channel_id in FSUB_CHANNEL_IDS:
         try:
             member = await bot.get_chat_member(channel_id, user_id)
             if member.status not in ['member', 'administrator', 'creator']:
                 return False
         except Exception as e:
-            # If bot fails to check (kicked/not admin), return False to be safe
             logger.error(f"Error checking channel {channel_id}: {e}")
             return False
     return True
 
 async def validate_user_fsub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Gatekeeper function. 
-    Checks cache first (Speed), then API. 
-    If user left channels, sends join message and returns False.
-    """
     user = update.effective_user
     current_time = time.time()
     
     # 1. Check Cache
     last_check = user_fsub_cache.get(user.id, 0)
     if current_time - last_check < CACHE_DURATION:
-        return True # User verified recently, allow access immediately
+        return True
         
     # 2. Check API
     is_sub = await is_member(user.id, context.bot)
     
     if is_sub:
-        user_fsub_cache[user.id] = current_time # Update cache
+        user_fsub_cache[user.id] = current_time 
         return True
     
-    # 3. User is NOT subscribed
+    # 3. Fail
     buttons = []
     for i, ch_id in enumerate(FSUB_CHANNEL_IDS, 1):
         try:
@@ -255,7 +258,6 @@ async def validate_user_fsub(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if update.callback_query:
         await update.callback_query.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=ParseMode.HTML)
-        # Don't delete the old message, just alert
     else:
         await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(buttons), parse_mode=ParseMode.HTML)
         
@@ -273,9 +275,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if possible_referrer != user.id:
             referrer_id = possible_referrer
 
-    # Strict check on start
     if not await validate_user_fsub(update, context):
-        # Store referrer if verification failed so we can reward later
         if referrer_id:
             context.user_data['referrer_id'] = referrer_id
         return
@@ -293,19 +293,14 @@ async def check_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     user = query.from_user
     await query.answer()
 
-    # Bypass cache, force check API
     is_sub = await is_member(user.id, context.bot)
     
     if is_sub:
-        # Update cache
         user_fsub_cache[user.id] = time.time()
-        
         referrer_id = context.user_data.get('referrer_id')
         is_new = await add_user(user, referrer_id)
-        
         if is_new and referrer_id:
             await update_referral_reward(referrer_id)
-            
         await query.message.delete()
         await show_main_menu(update, context)
     else:
@@ -329,10 +324,8 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.callback_query.message.reply_text(text, reply_markup=markup)
 
-# --- MENU HANDLERS (With Security Checks) ---
-
 async def my_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+    if not await validate_user_fsub(update, context): return
     
     user = update.effective_user
     bot_username = context.bot.username
@@ -350,7 +343,7 @@ async def my_link_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
 
 async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+    if not await validate_user_fsub(update, context): return
 
     user_id = update.effective_user.id
     user_data = await get_user(user_id)
@@ -369,7 +362,7 @@ async def balance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def stock_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+    if not await validate_user_fsub(update, context): return
 
     stats = await get_stats()
     stock = stats['stock']
@@ -383,7 +376,7 @@ async def stock_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await validate_user_fsub(update, context): return # 🔒 SECURITY CHECK
+    if not await validate_user_fsub(update, context): return
 
     user_id = update.effective_user.id
     user_data = await get_user(user_id)
@@ -403,23 +396,17 @@ async def withdraw_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Select amount to withdraw:</b>"
     )
     
-    # Updated prices in buttons
     keyboard = [
-        [InlineKeyboardButton("1 💎 = 500 🎟", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 🎟", callback_data="redeem_1000")],
-        [InlineKeyboardButton("15 💎 = 2000 🎟", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 🎟", callback_data="redeem_4000")],
+        [InlineKeyboardButton("1 💎 = 500 ₪", callback_data="redeem_500"), InlineKeyboardButton("4 💎 = 1000 ₪", callback_data="redeem_1000")],
+        [InlineKeyboardButton("15 💎 = 2000 ₪", callback_data="redeem_2000"), InlineKeyboardButton("25 💎 = 4000 ₪", callback_data="redeem_4000")],
         [InlineKeyboardButton("🔙 Back", callback_data="close_withdraw")]
     ]
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    
-    # 🔒 SECURITY CHECK (Handle CallbackQuery)
-    # Validate manually because the helper sends a new message for text updates,
-    # but for callback we might want an alert or a new message.
-    # We'll use the same helper, it handles both types smartly.
     if not await validate_user_fsub(update, context): 
-        await query.answer() # stop spinner
+        await query.answer()
         return
 
     user = query.from_user
@@ -440,7 +427,7 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text(
             f"✅ Coupon Redeemed Successfully!\n\n"
             f"🎟 Code: <code>{code}</code>\n"
-            f"💰 Amount: {amount} 🎟\n"
+            f"💰 Amount: {amount} ₪\n"
             f"💸 Deducted: {cost} 💎\n"
             f"💎 Remaining Balance: {balance} 💎\n\n"
             f"Use this code on SHEIN app/website",
@@ -451,12 +438,12 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 chat_id=LOG_CHANNEL_ID,
                 text=f"🎟 New Redemption\n\n"
                      f"👤 User: {user.first_name} (ID: {user.id})\n"
-                     f"💰 Amount: {amount} 🎟\n"
+                     f"💰 Amount: {amount} ₪\n"
                      f"🔢 Code: {code}\n"
                      f"🕒 Time: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
             )
     elif status == "out_of_stock":
-        await query.answer(f"❌ {amount} 🎟 coupons are out of stock!", show_alert=True)
+        await query.answer(f"❌ {amount} ₪ coupons are out of stock!", show_alert=True)
     elif status == "insufficient_balance":
         user_data = await get_user(user.id)
         await query.message.edit_text(
@@ -466,10 +453,29 @@ async def redeem_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Invite friends to earn more coins."
         )
 
-# --- ADMIN (No FSub check needed) ---
+# --- ADMIN COMMANDS ---
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS: return
     await show_admin_panel(update, context)
+
+# 🛑 NEW: DELETE COUPON COMMAND 🛑
+async def delete_coupons_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS: return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text("❌ Usage: `/delete CODE1 CODE2 ...`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # Delete multiple at once (High Speed)
+    count = await delete_coupons_from_db(args, user_id)
+    
+    if count > 0:
+        await update.message.reply_text(f"✅ Successfully deleted {count} coupon(s)!")
+    else:
+        await update.message.reply_text("⚠️ No coupons found with those codes.")
 
 async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats = await get_stats()
@@ -513,10 +519,10 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Used Coupons: {stats['used_coupons']}\n"
             f"🔄 Available: {stats['available_coupons']}\n\n"
             f"Coupon Stock:\n"
-            f"• 500 🎟: {stats['stock'].get(500, 0)}\n"
-            f"• 1000 🎟: {stats['stock'].get(1000, 0)}\n"
-            f"• 2000 🎟: {stats['stock'].get(2000, 0)}\n"
-            f"• 4000 🎟: {stats['stock'].get(4000, 0)}\n\n"
+            f"• 500 ₪: {stats['stock'].get(500, 0)}\n"
+            f"• 1000 ₪: {stats['stock'].get(1000, 0)}\n"
+            f"• 2000 ₪: {stats['stock'].get(2000, 0)}\n"
+            f"• 4000 ₪: {stats['stock'].get(4000, 0)}\n\n"
             f"Last updated: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
         )
         keyboard = [[InlineKeyboardButton("🔙 Back to Admin Panel", callback_data="admin_reload")]]
@@ -526,7 +532,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("add_c_"):
         amount = int(data.split("_")[2])
         context.user_data['add_coupon_amount'] = amount
-        await query.message.reply_text(f"Please send coupon codes for {amount} 🎟 (one per line):")
+        await query.message.reply_text(f"Please send coupon codes for {amount} ₪ (one per line):")
         return WAITING_FOR_COUPONS
 
 async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -540,7 +546,7 @@ async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE
     stock = stats['stock']
     reply_text = (
         f"✅ Successfully added {added} coupon(s)!\n\n"
-        f"💰 Amount: {amount} 🎟\n"
+        f"💰 Amount: {amount} ₪\n"
         f"🎟 Added: {added} codes\n"
         f"📊 Failed: {duplicates} (duplicates)\n\n"
         f"Updated stock:\n"
@@ -555,7 +561,7 @@ async def process_add_coupons(update: Update, context: ContextTypes.DEFAULT_TYPE
             chat_id=LOG_CHANNEL_ID,
             text=f"👑 Admin Action\n\n"
                  f"👤 Admin: {update.effective_user.first_name} (ID: {admin_id})\n"
-                 f"🎟 Added: {added} x {amount} 🎟 coupons\n"
+                 f"🎟 Added: {added} x {amount} ₪ coupons\n"
                  f"🕒 Time: {datetime.datetime.now().strftime('%Y-%m-%d %I:%M:%S %p')}"
         )
     return ConversationHandler.END
@@ -589,9 +595,9 @@ def main():
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("delete", delete_coupons_command)) # ✅ NEW COMMAND
     application.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     
-    # Text Handlers (Protected)
     application.add_handler(MessageHandler(filters.Regex("^🔗 My Link$"), my_link_handler))
     application.add_handler(MessageHandler(filters.Regex("^💎 Balance$"), balance_handler))
     application.add_handler(MessageHandler(filters.Regex("^🎟 Coupon Stock$"), stock_handler))
@@ -602,7 +608,7 @@ def main():
     application.add_handler(CallbackQueryHandler(redeem_callback, pattern="^redeem_"))
     application.add_handler(CallbackQueryHandler(redeem_callback, pattern="^close_withdraw"))
     
-    print("Bot is polling (Light Speed Mode 🚀)...")
+    print("Bot is polling (Light Speed Mode with /delete 🚀)...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
