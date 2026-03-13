@@ -14,37 +14,41 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.enums import ParseMode
 import motor.motor_asyncio
 
-# --- CUSTOM BUTTON CLASS (To support 'style' attribute) ---
+# --- CUSTOM BUTTON CLASS ---
+# Ye class aapke "style" attribute ko accept karegi bina crash huye
 class StyledButton(InlineKeyboardButton):
     def __init__(self, text, callback_data=None, url=None, style=None, **kwargs):
         super().__init__(text=text, callback_data=callback_data, url=url, **kwargs)
-        self.style = style # Aapka custom style yahan save hoga
+        self.style = style
 
 # --- CONFIGURATION ---
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- FLASK SERVER ---
 app = Flask(__name__)
 @app.route('/')
-def health_check(): return "Bot is alive! 🚀 Styled Mode ON", 200
+def health_check(): return "Bot is alive! 🚀 Styled UI Mode", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
+# --- BOT CONFIG ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0"))
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
 FSUB_CHANNEL_IDS = [int(x) for x in os.getenv("FSUB_CHANNEL_IDS", "").split(",") if x.strip()]
 
+# --- 💎 WITHDRAWAL CONFIG 💎 ---
 COUPON_CONFIG = {
-    500: {"cost": 1, "name": "SHEIN"},
-    1000: {"cost": 5, "name": "SHEIN"},
-    1500: {"cost": 4, "name": "BIG BASKET 🛒", "style": "success"}, # Styled attribute added
-    2000: {"cost": 25, "name": "SHEIN"},
-    4000: {"cost": 35, "name": "SHEIN"}
+    500: {"cost": 1, "name": "SHEIN", "style": "primary"},
+    1000: {"cost": 5, "name": "SHEIN", "style": "primary"},
+    1500: {"cost": 4, "name": "BIG BASKET 🛒", "style": "success"}, # Big Basket styled
+    2000: {"cost": 25, "name": "SHEIN", "style": "primary"},
+    4000: {"cost": 35, "name": "SHEIN", "style": "primary"}
 }
 
 # --- DATABASE ---
@@ -59,6 +63,7 @@ bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(storage=MemoryStorage())
 
 # --- KEYBOARDS ---
+
 def main_menu_kb():
     kb = [
         [KeyboardButton(text="🔗 My Link"), KeyboardButton(text="💎 Balance")],
@@ -66,6 +71,26 @@ def main_menu_kb():
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
+# Function to generate keyboard with your requested style logic
+def get_withdrawal_keyboard():
+    keyboard = []
+    for amt, data in COUPON_CONFIG.items():
+        keyboard.append([
+            StyledButton(
+                text=f"{data['name']} {amt} (Cost: {data['cost']} 💎)", 
+                callback_data=f"redeem_{amt}",
+                style=data.get("style", "primary")
+            )
+        ])
+    
+    # Adding the specific row you requested
+    keyboard.append([
+        StyledButton(text="❌ Delete", callback_data="del", style="danger"),
+        StyledButton(text="✅ Confirm", callback_data="ok", style="success"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+# --- FSUB LOGIC ---
 async def is_member(user_id: int):
     if not FSUB_CHANNEL_IDS: return True
     for ch_id in FSUB_CHANNEL_IDS:
@@ -91,23 +116,22 @@ async def start_handler(message: types.Message, command: CommandObject):
     user = await users_col.find_one({'user_id': user_id})
     if not user:
         await users_col.insert_one({
-            'user_id': user_id, 'balance': 0.0, 'referred_by': referrer_id, 'created_at': datetime.datetime.now(), 'last_active': datetime.datetime.now()
+            'user_id': user_id, 'balance': 0.0, 'referred_by': referrer_id, 'created_at': datetime.datetime.now()
         })
         if referrer_id:
-            await users_col.update_one({'user_id': referrer_id}, {'$inc': {'balance': 1.0}})
-    
-    await message.answer(f"👋 Welcome!", reply_markup=main_menu_kb())
+            await users_col.update_one({'user_id': referrer_id}, {'$inc': {'balance': 1.0, 'referral_count': 1}})
+
+    await message.answer(f"👋 Welcome {message.from_user.first_name}!", reply_markup=main_menu_kb())
 
 @dp.message(F.text == "🔗 My Link")
 async def my_link(message: types.Message):
     me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start={message.from_user.id}"
-    await message.answer(f"🔗 <b>Your Link:</b>\n{link}")
+    await message.answer(f"🔗 <b>Your Link:</b>\nhttps://t.me/{me.username}?start={message.from_user.id}")
 
 @dp.message(F.text == "💎 Balance")
 async def balance_check(message: types.Message):
     user = await users_col.find_one({'user_id': message.from_user.id})
-    await message.answer(f"💎 <b>Balance:</b> {user.get('balance', 0)} 💎")
+    await message.answer(f"💎 <b>Balance:</b> {user.get('balance', 0.0)} 💎")
 
 @dp.message(F.text == "🎟 Coupon Stock")
 async def stock_check(message: types.Message):
@@ -120,23 +144,18 @@ async def stock_check(message: types.Message):
 @dp.message(F.text == "💸 Withdraw")
 async def withdraw_menu(message: types.Message):
     user = await users_col.find_one({'user_id': message.from_user.id})
-    balance = user.get('balance', 0)
+    if user['balance'] <= 0:
+        await message.answer("❌ Insufficient Balance!")
+        return
     
-    kb = []
-    for amt, data in COUPON_CONFIG.items():
-        # Applying your requested style logic
-        btn_style = data.get("style", "primary")
-        kb.append([StyledButton(text=f"{data['name']} {amt} ({data['cost']} 💎)", callback_data=f"redeem_{amt}", style=btn_style)])
-    
-    kb.append([StyledButton(text="❌ Cancel", callback_data="del", style="danger")])
-    await message.answer("💸 <b>Select withdrawal:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=kb))
+    await message.answer("💸 <b>Withdrawal Menu:</b>", reply_markup=get_withdrawal_keyboard())
 
 @dp.callback_query(F.data.startswith("redeem_"))
 async def redeem_process(callback: types.CallbackQuery):
     amount = int(callback.data.split("_")[1])
     cost = COUPON_CONFIG[amount]['cost']
     user = await users_col.find_one({'user_id': callback.from_user.id})
-
+    
     if user['balance'] < cost:
         await callback.answer("❌ Not enough diamonds!", show_alert=True)
         return
@@ -154,11 +173,11 @@ async def redeem_process(callback: types.CallbackQuery):
     await callback.message.edit_text(f"✅ <b>Redeemed!</b>\nCode: <code>{coupon['code']}</code>")
 
 @dp.callback_query(F.data == "del")
-async def delete_menu_callback(callback: types.CallbackQuery):
+async def delete_btn_callback(callback: types.CallbackQuery):
     await callback.message.delete()
-    await callback.answer("Menu Closed")
+    await callback.answer("Menu Deleted")
 
-# --- ADMIN PANEL ---
+# --- ADMIN COMMANDS ---
 
 @dp.message(Command("admin"), F.from_user.id.in_(ADMIN_IDS))
 async def admin_panel(message: types.Message):
@@ -180,19 +199,14 @@ async def admin_save_codes(message: types.Message, state: FSMContext):
     codes = [c.strip() for c in message.text.splitlines() if c.strip()]
     for code in codes:
         await coupons_col.insert_one({'code': code, 'amount': data['add_amt'], 'is_used': False, 'added_at': datetime.datetime.now()})
-    await message.answer(f"✅ Added {len(codes)} coupons.")
+    await message.answer(f"✅ Added {len(codes)} codes.")
     await state.clear()
 
-@dp.message(Command("delete"), F.from_user.id.in_(ADMIN_IDS))
-async def delete_codes(message: types.Message, command: CommandObject):
-    if not command.args: return
-    res = await coupons_col.delete_many({'code': {'$in': command.args.split()}})
-    await message.answer(f"🗑 Deleted {res.deleted_count} codes.")
-
+# --- MAIN ---
 async def main():
     threading.Thread(target=run_flask, daemon=True).start()
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     try: asyncio.run(main())
-    except: logger.info("Stopped")
+    except: logger.info("Bot Stopped")
