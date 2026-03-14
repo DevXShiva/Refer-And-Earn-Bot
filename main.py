@@ -489,7 +489,7 @@ async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Select an option:"
     )
     keyboard = [
-        [InlineKeyboardButton("➕ Add 500 Coupons", callback_data="add_c_500"), InlineKeyboardButton("➕ Add 1000 Coupons", callback_data="add_c_1000")],
+        [InlineKeyboardButton("➕ Add 500 Coupons", callback_data="add_c_500"), InlineKeyboardButton("➕ Add 1000 Coupons", callback_data="add_c_1000", style="danger")],
         [InlineKeyboardButton("➕ Add 2000 Coupons", callback_data="add_c_2000"), InlineKeyboardButton("➕ Add 4000 Coupons", callback_data="add_c_4000")],
         [InlineKeyboardButton("📊 Statistics", callback_data="admin_stats"), InlineKeyboardButton("🔄 Reload Data", callback_data="admin_reload")],
         [InlineKeyboardButton("🔙 Back to Main", callback_data="admin_close")]
